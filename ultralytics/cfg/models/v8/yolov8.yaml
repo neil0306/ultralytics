@@ -2,9 +2,10 @@
 # YOLOv8 object detection model with P3-P5 outputs. For Usage examples see https://docs.ultralytics.com/tasks/detect
 
 # Parameters
-nc: 80 # number of classes
+nc: 80 # number of classes   数据类类别数量
 scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'
   # [depth, width, max_channels]
+  # 下面的 n, s, m, l, x 是不同大小的模型的参数
   n: [0.33, 0.25, 1024] # YOLOv8n summary: 225 layers,  3157200 parameters,  3157184 gradients,   8.9 GFLOPs
   s: [0.33, 0.50, 1024] # YOLOv8s summary: 225 layers, 11166560 parameters, 11166544 gradients,  28.8 GFLOPs
   m: [0.67, 0.75, 768] # YOLOv8m summary: 295 layers, 25902640 parameters, 25902624 gradients,  79.3 GFLOPs
@@ -13,23 +14,24 @@ scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call 
 
 # YOLOv8.0n backbone
 backbone:
-  # [from, repeats, module, args]
-  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
-  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  # [from, repeats, module, args]   # -1表示数据从上一层传入(输入层的-1表示来源是输入图片, 其他层则是网络的前一层的输出)
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2      # layer 0(结构图里面的 stem layer), 走1次卷积, 得到 Pyramid 1 的特征图
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4     # layer 1(结构图里面的 Stage layer 1), 走1次卷积, 然后走 CSPLayer_2Conv层, 得到 Pyramid 2 的特征图
   - [-1, 3, C2f, [128, True]]
-  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8     # layer 3(结构图里面的 Stage layer 3), 走1次卷积, 然后走 CSPLayer_2Conv层, 得到 Pyramid 3 的特征图
   - [-1, 6, C2f, [256, True]]
-  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
-  - [-1, 6, C2f, [512, True]]
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16    # 同理, 可与结构图一一对应
+  - [-1, 6, C2f, [512, True]]  
   - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
   - [-1, 3, C2f, [1024, True]]
-  - [-1, 1, SPPF, [1024, 5]] # 9
+  - [-1, 1, SPPF, [1024, 5]] # 9     # backbone最后一层, SPPF
 
 # YOLOv8.0n head
 head:
+  # 下面这些list的参数结构与backbone的参数结构一样, 都是 [from, repeats, module, args]
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
-  - [-1, 3, C2f, [512]] # 12
+  - [[-1, 6], 1, Concat, [1]] # cat backbone P4   # 这里的 -1 表示有一份数据来自于上一层upsample的输出, 另一份数据来自于整个网络第4层的输出(这一层位于backbone里)
+  - [-1, 3, C2f, [512]] # 12                      # concat 的结果传入 C2f 层, 得到 序号为第12层 的特征图
 
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 4], 1, Concat, [1]] # cat backbone P3

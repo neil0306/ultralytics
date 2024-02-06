@@ -30,36 +30,37 @@ class Detect(nn.Module):
         super().__init__()
         self.nc = nc  # number of classes
         self.nl = len(ch)  # number of detection layers
-        self.reg_max = 16  # DFL channels (ch[0] // 16 to scale 4/8/12/16/20 for n/s/m/l/x)
+        self.reg_max = 16  # DFL channels (ch[0] // 16 to scale 4/8/12/16/20 for n/s/m/l/x)    # 这个是DFL loss需要指定的"最大回归通道数"
         self.no = nc + self.reg_max * 4  # number of outputs per anchor
-        self.stride = torch.zeros(self.nl)  # strides computed during build
-        c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
-        self.cv2 = nn.ModuleList(
+        self.stride = torch.zeros(self.nl)  # strides computed during build   # 初始化为0, 后面会逐步计算出来
+        c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels   # 注意最终回归的通道数是 4倍的reg_max
+        self.cv2 = nn.ModuleList(       # 自定义卷积模块 conv2, 这里用来做回归任务, 判断框的偏移量
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
         )
-        self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+        self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)  # 自定义卷积模块 conv3, 这里用来做分类任务
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         for i in range(self.nl):
-            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)   ## 训练时将两个head分支concatenate到一起, 方便后处理而已(不concatenate也没事, 就是计算费点劲)
+
         if self.training:  # Training path
             return x
 
         # Inference path
         shape = x[0].shape  # BCHW
-        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
-        if self.dynamic or self.shape != shape:
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)  ## 将p3, p4, p5 concatenate到一起
+        if self.dynamic or self.shape != shape:  ## dynamic 指的是输入图片是可变的尺寸, 此时会生成Anchor, Stride
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
             self.shape = shape
 
         if self.export and self.format in ("saved_model", "pb", "tflite", "edgetpu", "tfjs"):  # avoid TF FlexSplitV ops
-            box = x_cat[:, : self.reg_max * 4]
-            cls = x_cat[:, self.reg_max * 4 :]
+            box = x_cat[:, : self.reg_max * 4]     ## 取出对应的 p3 p4 p5, 然后取出对应的回归值
+            cls = x_cat[:, self.reg_max * 4 :]     ## 取出 用于类别预测 相关的通道
         else:
-            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
-        dbox = self.decode_bboxes(box)
+            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)  ## 做的事情同样是取不同的分支出来, 与上面的操作一样
+        dbox = self.decode_bboxes(box)  ## 解码回归值, 得到最终的预测框 (乘以strides, 乘以anchors, sigmoid, 然后解码成xywh格式的框)
 
         if self.export and self.format in ("tflite", "edgetpu"):
             # Precompute normalization factor to increase numerical stability
