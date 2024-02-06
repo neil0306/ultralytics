@@ -1,0 +1,11 @@
+## --------- 小麦检测数据集配置文件 ------------
+## 路径配置
+path: /home/ning/Desktop/YOLOv8_notes/ultralytics/dataset
+train: images/train
+val:  images/valid
+test: images/test
+
+## classes, 这里只有两类, 分别是小麦和背景
+names:
+    0: none
+    1: wheat
