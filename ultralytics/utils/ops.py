@@ -209,13 +209,16 @@ def non_max_suppression(
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
     if isinstance(prediction, (list, tuple)):  # YOLOv8 model in validation model, output = (inference_out, loss_out)
-        prediction = prediction[0]  # select only inference output
+        prediction = prediction[0]  # select only inference output     ning: 只解析第一个输出, 输入为(640*640)时, 得到的输出是 (1,6,8400)
 
     bs = prediction.shape[0]  # batch size
     nc = nc or (prediction.shape[1] - 4)  # number of classes
     nm = prediction.shape[1] - nc - 4
-    mi = 4 + nc  # mask start index
-    xc = prediction[:, 4:mi].amax(1) > conf_thres  # candidates
+    mi = 4 + nc  # mask start index   ## 计算置信度的起始索引
+    xc = prediction[:, 4:mi].amax(1) > conf_thres  # candidates   
+                                                    ## ning: 首先, 明确一下prediction的shape, (1,6,8400), 1表示batch_size, 6表示(x1,y1,x2,y2,置信度,类别概率), 8400表示预测的框的数量; 这个张量相当于 1个图片, 6个通道, 8400个像素点; 
+                                                    ##       若忽略第一个维度, 用二维的方式去看, 就是 8400行, 6列; 这里切片的时候把 置信度 和 类别概率 一起切出来了, 然后和置信度阈值做比较, 感觉是藏东西了... 置信度和类别概率其中一个大于 conf_thres 的框都被保留了;
+                                                    ##  这行代码的操作: 取所有行(对应8400), 从第5列到第mi列, 得到(1,2,8400); 取每一行的最大值, 然后和conf_thres比较, 得到一个bool值, 用于过滤掉置信度小于conf_thres的框
 
     # Settings
     # min_wh = 2  # (pixels) minimum box width and height
@@ -231,7 +234,7 @@ def non_max_suppression(
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[:, 2:4] < min_wh) | (x[:, 2:4] > max_wh)).any(1), 4] = 0  # width-height
-        x = x[xc[xi]]  # confidence
+        x = x[xc[xi]]  # confidence  ## ning: xi是图片索引, x是图片的预测结果, xc[xi]是一个bool索引, 用于过滤掉置信度小于conf_thres的框
 
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]) and not rotated:
